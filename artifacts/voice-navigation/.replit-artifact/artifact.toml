@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Dhristi Voice Navigation"
+description = "Dhristi helps visually impaired people navigate with voice guidance, existing outdoor GPS directions, indoor graph-based routes, and QR or manual indoor location checkpoints."
+version = "1.0.0"
+id = "artifacts/voice-navigation"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19887
+
+[services.development]
+run = "pnpm --filter @workspace/voice-navigation run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/voice-navigation", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/voice-navigation/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19887"
+BASE_PATH = "/"

@@ -1,0 +1,291 @@
+# app.py
+from fastapi import FastAPI, UploadFile, File, APIRouter, WebSocket, WebSocketDisconnect 
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from PIL import Image
+from pytesseract import image_to_string
+try:
+    from gtts import gTTS
+except ImportError:
+    gTTS = None
+import os
+import uuid
+import asyncio
+import shutil
+import tempfile
+import threading
+import time
+
+import numpy as np
+import cv2
+
+from utils.text_to_speech import generate_tts_file
+from utils.speech_to_text import convert_speech_to_text
+from utils.object_detection import detect_objects
+from utils.ocr_utils import extract_text_from_image, text_to_speech
+from utils.live_detection import start_live_detection, stop_live_detection, running, get_current_detections, process_frame
+
+router = APIRouter()
+
+# ---------------- Directories ----------------
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# ---------------- FastAPI app ----------------
+app = FastAPI(title="AI Voice Navigation Service", version="1.0")
+
+# Enable CORS for React frontend (localhost + LAN dev origins)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+):[0-9]+",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve uploads folder
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+# ---------------- Global Variables ----------------
+latest_detections = []  # Add this missing global variable
+
+# ---------------- Models ----------------
+class TTSRequest(BaseModel):
+    text: str
+
+# ---------------- Root ----------------
+@app.get("/")
+def root():
+    return {"message": "AI Voice Navigation Service is running 🚀"}
+
+
+@app.get("/live/start/")
+def live_detection_start():
+    global running, latest_detections
+    if running:
+        return {"status": "already_running", "message": "Live detection is already running."}
+
+    # Run live detection in a separate thread
+    threading.Thread(target=start_live_detection, daemon=True).start()
+    return {"status": "started", "message": "Live detection started."}
+
+# 🔴 Live Detection Stop
+@app.get("/live/stop/")
+def live_detection_stop():
+    global running, latest_detections
+    if not running:
+        return {"status": "not_running", "message": "Live detection is not running."}
+
+    stop_live_detection()
+    latest_detections = []  # Clear detections when stopped
+    return {"status": "stopped", "message": "Stop signal sent to live detection."}
+
+# ---------------- TTS ----------------
+@app.post("/tts/")
+async def tts_endpoint(req: TTSRequest):
+    try:
+        filename = f"tts_{uuid.uuid4().hex}.mp3"
+        await generate_tts_file(req.text, filename)
+        return {"status": "success", "file": filename}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# ---------------- STT ----------------
+@app.post("/stt/")
+async def stt_endpoint(audio: UploadFile = File(...)):
+    """
+    Convert speech → text using Whisper
+    """
+    # Save uploaded file in a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp_path = tmp.name
+        tmp.write(await audio.read())
+
+    try:
+        # Run Whisper transcription in a thread to avoid blocking
+        text = await asyncio.to_thread(convert_speech_to_text, tmp_path)
+        return {"status": "success", "text": text}
+    except Exception as e:
+        return {"status": "error", "text": f"Error processing audio: {str(e)}"}
+    finally:
+        # Delete temp file
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+# ---------------- Object Detection ----------------
+@app.post("/detect/")
+async def detect_endpoint(image: UploadFile = File(...)):
+    """
+    Detect objects in image using YOLOv8
+    """
+    # Save uploaded image
+    filename = os.path.join(UPLOAD_DIR, f"detect_{uuid.uuid4().hex}.jpg")
+    with open(filename, "wb") as f:
+        f.write(await image.read())
+
+    try:
+        results, output_file = detect_objects(filename)
+        return {
+            "status": "success",
+            "detections": results,
+            "output_file": os.path.basename(output_file),
+            "fileUrl": f"/uploads/{os.path.basename(output_file)}"
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/live/frame/")
+async def process_live_frame(file: UploadFile = File(...)):
+    """
+    Process a single image frame uploaded from browser client camera.
+    """
+    try:
+        content = await file.read()
+        nparr = np.frombuffer(content, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            return JSONResponse({"status": "error", "message": "Invalid image frame", "detections": []}, status_code=400)
+
+        detections = process_frame(frame)
+        return {"status": "success", "detections": detections}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e), "detections": []}, status_code=500)
+
+@app.get("/live/detections/")
+def get_live_detections():
+    """Get current detection results for frontend"""
+    global latest_detections
+    if not running:
+        return {"status": "not_running", "detections": []}
+    
+    try:
+        # Get current detections from live_detection module
+        current_detects = get_current_detections()
+        
+        detections = []
+        for detection in current_detects:
+            # Handle both tuple formats: (label, distance, direction) or (label, distance, direction, confidence)
+            if len(detection) == 3:
+                label, distance, direction = detection
+                confidence = 0.8  # Default confidence
+            else:
+                label, distance, direction, confidence = detection
+            
+            detections.append({
+                "class_name": label,
+                "distance": distance,
+                "direction": direction,
+                "confidence": round(float(confidence), 2)
+            })
+        
+        latest_detections = detections  # Update global for WebSocket
+        return {"status": "running", "detections": detections}
+    
+    except Exception as e:
+        print(f"Error in get_live_detections: {e}")
+        return {"status": "error", "detections": [], "message": str(e)}
+
+@app.get("/live/status/")
+def get_live_status():
+    """Check if live detection is running"""
+    return {"running": running}
+    
+@app.websocket("/ws/live")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    print("📡 Client connected to WebSocket")
+    try:
+        while True:
+            await asyncio.sleep(1)  # Send updates every second
+            if running and latest_detections:
+                await websocket.send_json({
+                    "status": "running", 
+                    "detections": latest_detections
+                })
+            else:
+                await websocket.send_json({
+                    "status": "not_running", 
+                    "detections": []
+                })
+    except WebSocketDisconnect:
+        print("📡 Client disconnected from WebSocket")
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+    finally:
+        await websocket.close()
+# In your app.py - Update the OCR endpoint
+@app.post("/ocr/")
+async def read_text(file: UploadFile = File(...)):
+    """
+    Extract text from uploaded image and optionally generate speech.
+    """
+    try:
+        print(f"📸 Received file: {file.filename}, content-type: {file.content_type}")
+        
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            return JSONResponse(
+                {"status": "error", "message": "File must be an image"}, 
+                status_code=400
+            )
+
+        # Save uploaded image
+        file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+        file_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}.{file_extension}")
+        
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        print(f"💾 Image saved to: {file_path}")
+
+        # Perform OCR
+        try:
+            img = Image.open(file_path)
+            print(f"🖼️ Image opened successfully: {img.size}, mode: {img.mode}")
+            
+            # Convert image to RGB if necessary (for PNG with transparency)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Perform OCR
+            extracted_text = image_to_string(img).strip()
+            print(f"📖 Extracted text: {extracted_text}")
+
+        except Exception as ocr_error:
+            print(f"❌ OCR processing error: {str(ocr_error)}")
+            return JSONResponse(
+                {"status": "error", "message": f"OCR processing failed: {str(ocr_error)}"}, 
+                status_code=500
+            )
+
+        # Convert extracted text to speech
+        audio_file = None
+        if extracted_text:
+            try:
+                audio_file = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_ocr.mp3")
+                tts = gTTS(text=extracted_text, lang="en")
+                tts.save(audio_file)
+                print(f"🔊 Audio file saved: {audio_file}")
+            except Exception as tts_error:
+                print(f"❌ TTS error: {str(tts_error)}")
+                # Continue even if TTS fails
+
+        return {
+            "status": "success",
+            "text": extracted_text,
+            "audio_file": os.path.basename(audio_file) if audio_file else None,
+            "fileUrl": f"/uploads/{os.path.basename(audio_file)}" if audio_file else None
+        }
+
+    except Exception as e:
+        print(f"❌ General error in OCR endpoint: {str(e)}")
+        return JSONResponse(
+            {"status": "error", "message": f"Server error: {str(e)}"}, 
+            status_code=500
+        )
+

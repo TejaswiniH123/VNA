@@ -1,0 +1,824 @@
+You are working on my existing final-year project:
+
+PROJECT:
+AI-Powered Voice-Controlled Navigation Assistant for Visually Impaired People
+
+GitHub repository:
+https://github.com/Sincha05/voice-navigation-app
+
+IMPORTANT:
+This is an EXISTING project. Do NOT rebuild the application from scratch.
+First inspect and understand the complete existing codebase, architecture, APIs, database models, frontend components, AI services, navigation logic, Docker configuration, and environment configuration.
+
+The current repository has these major components:
+
+- ai-service/
+- backend/
+- frontend/
+
+The project is intended to assist visually impaired users with safe navigation using AI, computer vision, voice interaction, and navigation.
+
+CURRENTLY IMPLEMENTED / EXISTING FUNCTIONALITY:
+
+1. AI / Computer Vision Service
+- Python-based AI service using FastAPI.
+- Uvicorn is used to run the FastAPI service.
+- Ultralytics YOLO is already used for object/obstacle detection.
+- Existing YOLO model: YOLOv8n / yolov8n.pt.
+- Existing detection flow processes image frames through a detection service.
+- Existing API includes health/status endpoints and an image detection endpoint.
+- The AI service is intended to detect obstacles in front of the user.
+
+2. Navigation Assistant
+- The project already has navigation-related functionality.
+- It is intended to provide voice-based navigation assistance.
+- The system should be designed for visually impaired users.
+- Voice interaction/guidance is an important part of the application.
+
+3. Outdoor Navigation
+- The application is designed to support outdoor navigation.
+- Outdoor navigation should remain working.
+- DO NOT remove, replace, or break existing outdoor navigation.
+
+4. Frontend
+- Existing frontend must be inspected and reused.
+- Do not replace the frontend framework unnecessarily.
+- Preserve the existing UI, components, styling, routing, and working features wherever possible.
+
+5. Backend
+- Existing backend must be inspected before making changes.
+- Reuse existing authentication, database configuration, APIs, services, and models where appropriate.
+- Do not create duplicate functionality if an equivalent service already exists.
+
+6. Existing project infrastructure
+- Existing Docker configuration, environment variables, database configuration, API configuration, and deployment-related configuration must be preserved unless changes are genuinely required.
+- Do not expose secrets or hard-code API keys.
+
+NEW FEATURE TO ADD:
+
+I now need to ADD:
+
+INDOOR NAVIGATION
+
+The indoor-navigation functionality must be integrated into the existing application instead of being developed as a completely separate project.
+
+MAIN GOAL:
+
+A visually impaired user should be able to use the application inside a building such as:
+
+- college
+- hospital
+- office
+- shopping mall
+- railway station
+- airport
+
+The user should be able to select or speak a destination such as:
+
+"Take me to Room 305"
+
+and the application should determine an indoor route and provide voice guidance.
+
+IMPORTANT DESIGN PRINCIPLE:
+
+GPS cannot be assumed to work reliably indoors.
+
+Therefore, design indoor navigation as a separate navigation mode from outdoor GPS navigation.
+
+The application should support:
+
+OUTDOOR MODE
+→ GPS/map-based navigation
+
+INDOOR MODE
+→ indoor localization + indoor map + route/pathfinding + voice guidance
+
+Do NOT simply fake indoor GPS.
+
+--------------------------------------------------
+PHASE 1 — ANALYZE THE EXISTING PROJECT
+--------------------------------------------------
+
+Before writing code:
+
+1. Inspect the entire repository.
+2. Identify:
+   - frontend framework
+   - backend framework
+   - database
+   - API structure
+   - existing navigation implementation
+   - existing voice implementation
+   - existing AI service
+   - existing YOLO implementation
+   - authentication
+   - existing location handling
+   - existing WebSocket/realtime functionality if present
+   - existing Docker setup
+   - environment variables
+3. Identify which existing files can be reused.
+4. Identify exactly where indoor navigation should be integrated.
+5. Do not create duplicate services unnecessarily.
+
+First provide a concise architecture analysis before making major changes.
+
+--------------------------------------------------
+PHASE 2 — INDOOR NAVIGATION ARCHITECTURE
+--------------------------------------------------
+
+Implement indoor navigation using a practical architecture suitable for a final-year engineering project.
+
+The system should contain:
+
+1. BUILDING
+2. FLOOR
+3. ROOMS / DESTINATIONS
+4. NODES
+5. EDGES
+6. CURRENT USER LOCATION
+7. DESTINATION
+8. ROUTE
+9. VOICE INSTRUCTIONS
+
+Represent an indoor environment as a graph.
+
+Example:
+
+Node:
+- entrance
+- corridor junction
+- staircase
+- elevator
+- room
+- reception
+- restroom
+
+Edge:
+- connects two nodes
+- contains distance
+- contains direction if required
+- contains accessibility information if required
+
+Example graph:
+
+Entrance
+   |
+Corridor A
+   |
+Junction
+  /     \
+Room 101  Staircase
+            |
+         Floor 2
+            |
+        Corridor B
+            |
+         Room 305
+
+The route engine should calculate the shortest/suitable route between the user's current node and destination.
+
+Use a suitable pathfinding algorithm such as:
+- Dijkstra
+OR
+- A*
+
+Prefer A* if the representation makes sense, otherwise Dijkstra is perfectly acceptable.
+
+Do NOT over-engineer the first version.
+
+--------------------------------------------------
+PHASE 3 — INDOOR LOCALIZATION
+--------------------------------------------------
+
+The application needs a realistic way to determine where the user currently is indoors.
+
+Do NOT claim that normal GPS provides accurate indoor localization.
+
+For the first implementation, design the system so indoor localization can support one or more of the following mechanisms:
+
+OPTION A:
+QR-code / visual marker based localization.
+
+OPTION B:
+Camera-based visual localization / landmark recognition.
+
+OPTION C:
+Manual starting-point selection.
+
+OPTION D:
+Bluetooth/BLE beacon integration as a future extension.
+
+The first working version should preferably support:
+
+1. User enters/selects the building.
+2. User selects floor.
+3. User scans a QR/visual marker OR selects the starting location.
+4. System determines the current indoor node.
+5. User provides destination.
+6. Routing engine calculates route.
+7. Voice assistant provides navigation instructions.
+
+Architecture should be extensible so BLE or more advanced visual localization can be added later.
+
+--------------------------------------------------
+PHASE 4 — INDOOR MAP DATA
+--------------------------------------------------
+
+Create a clean data model for indoor maps.
+
+Suggested entities:
+
+Building
+- id
+- name
+- address/description
+
+Floor
+- id
+- buildingId
+- floorNumber
+- name
+
+LocationNode
+- id
+- floorId
+- name
+- type
+- x
+- y
+- description
+
+Possible node types:
+
+ENTRANCE
+ROOM
+CORRIDOR
+JUNCTION
+STAIRCASE
+ELEVATOR
+RESTROOM
+RECEPTION
+EXIT
+OTHER
+
+NavigationEdge
+- id
+- fromNodeId
+- toNodeId
+- distance
+- accessible
+- direction
+- description
+
+Destination
+- room number/name
+- node reference
+
+Do not blindly follow this schema if the existing database architecture suggests a better design.
+
+Reuse the existing database technology.
+
+--------------------------------------------------
+PHASE 5 — ROUTE ENGINE
+--------------------------------------------------
+
+Implement an indoor routing service.
+
+Input:
+
+- building
+- floor
+- current node
+- destination node
+- accessibility preferences if supported
+
+Output:
+
+- ordered list of nodes
+- distance
+- directions
+- floor transitions
+- navigation instructions
+
+Example output:
+
+Current:
+Entrance
+
+Destination:
+Room 305
+
+Route:
+
+1. Walk straight to the main corridor.
+2. Continue for 15 meters.
+3. Turn right at the junction.
+4. Take the staircase to Floor 2.
+5. Continue straight.
+6. Turn left.
+7. Room 305 is on the right.
+
+The route response should be structured JSON so the frontend and voice service can consume it.
+
+--------------------------------------------------
+PHASE 6 — VOICE NAVIGATION
+--------------------------------------------------
+
+Integrate indoor navigation with the existing voice system.
+
+The user should be able to say:
+
+"Take me to Room 305"
+
+or:
+
+"Navigate to Room 305"
+
+The system should:
+
+1. Detect the voice command.
+2. Extract the destination.
+3. Search indoor destinations.
+4. Determine current indoor location.
+5. Calculate route.
+6. Start navigation.
+7. Provide spoken instructions.
+
+Voice instructions should be short and clear.
+
+Examples:
+
+"Walk straight."
+
+"Turn left."
+
+"Turn right."
+
+"Continue for 10 meters."
+
+"Take the staircase to the second floor."
+
+"You have reached Room 305."
+
+Avoid giving overly long spoken instructions.
+
+--------------------------------------------------
+PHASE 7 — FRONTEND
+--------------------------------------------------
+
+Add an Indoor Navigation mode to the existing frontend.
+
+Do NOT redesign the entire application.
+
+Add a clear navigation-mode selection such as:
+
+[ Outdoor Navigation ]
+[ Indoor Navigation ]
+
+When Indoor Navigation is selected:
+
+1. Select Building
+2. Select Floor
+3. Determine current location
+4. Select/speak destination
+5. Show indoor map
+6. Show current position
+7. Show destination
+8. Show calculated route
+9. Start voice navigation
+
+The UI should be accessible for visually impaired users.
+
+Important:
+
+- large buttons
+- high contrast
+- clear text
+- voice interaction
+- minimal unnecessary UI
+- screen-reader-friendly labels
+- keyboard accessibility
+
+--------------------------------------------------
+PHASE 8 — INDOOR MAP VISUALIZATION
+--------------------------------------------------
+
+For the first implementation, do NOT depend on expensive commercial indoor mapping APIs.
+
+Create a simple indoor map visualization using the existing frontend technology.
+
+The map should display:
+
+- rooms
+- corridors
+- stairs
+- elevators
+- entrance
+- current position
+- destination
+- calculated route
+
+The map can initially be represented as:
+
+- SVG
+OR
+- HTML/CSS
+OR
+- Canvas
+
+Prefer the simplest maintainable solution compatible with the existing frontend.
+
+The map data should come from the backend rather than being hard-coded directly into UI components.
+
+--------------------------------------------------
+PHASE 9 — SAMPLE BUILDING
+--------------------------------------------------
+
+Create a sample indoor building dataset so the feature can be tested immediately.
+
+Example:
+
+Building:
+National Institute of Engineering
+
+Floor 1:
+- Main Entrance
+- Reception
+- Corridor A
+- Room 101
+- Room 102
+- Room 103
+- Staircase A
+
+Floor 2:
+- Corridor B
+- Room 201
+- Room 202
+- Room 203
+- Room 204
+- Room 205
+- Staircase A
+
+The exact real-world layout must NOT be claimed to be accurate unless actual map data is provided.
+
+Use a clearly labeled DEMO/SAMPLE indoor map.
+
+The architecture should allow us to replace this sample map with the actual college building map later.
+
+--------------------------------------------------
+PHASE 10 — QR / VISUAL MARKER LOCALIZATION
+--------------------------------------------------
+
+Implement a basic localization mechanism suitable for the first prototype.
+
+Preferred initial approach:
+
+QR-code based location markers.
+
+Example:
+
+QR code:
+BUILDING=MAIN
+FLOOR=2
+NODE=CORRIDOR_B
+
+When the user scans the QR code:
+
+→ decode marker
+→ determine building
+→ determine floor
+→ determine current node
+→ start/continue navigation
+
+The QR system should be abstracted behind a localization service so it can later be replaced by:
+
+- BLE
+- computer vision
+- visual landmarks
+- AR
+- other indoor positioning systems
+
+Do not pretend QR scanning provides continuous positioning. It provides a known reference point.
+
+--------------------------------------------------
+PHASE 11 — OBSTACLE DETECTION INDOORS
+--------------------------------------------------
+
+Reuse the existing YOLO obstacle-detection service.
+
+Do NOT create a second obstacle-detection system unless absolutely necessary.
+
+Indoor navigation should combine:
+
+Indoor route
++
+Current location
++
+Obstacle detection
++
+Voice guidance
+
+Example:
+
+Expected route:
+Walk straight.
+
+YOLO detects:
+Person/chair/obstacle blocking path.
+
+Voice:
+
+"Obstacle ahead. Please move slightly to your left."
+
+Keep this integration modular.
+
+Do not attempt complex autonomous path replanning in the first version unless the existing architecture already supports it.
+
+--------------------------------------------------
+PHASE 12 — API DESIGN
+--------------------------------------------------
+
+Add clean backend APIs as needed.
+
+Possible APIs:
+
+GET /api/indoor/buildings
+
+GET /api/indoor/buildings/{buildingId}/floors
+
+GET /api/indoor/floors/{floorId}/nodes
+
+GET /api/indoor/floors/{floorId}/map
+
+GET /api/indoor/destinations?query=room
+
+POST /api/indoor/location
+
+POST /api/indoor/route
+
+POST /api/indoor/navigation/start
+
+POST /api/indoor/navigation/next
+
+Use the existing API naming conventions if different.
+
+Do not create unnecessary endpoints.
+
+--------------------------------------------------
+PHASE 13 — DATABASE
+--------------------------------------------------
+
+If the project already has a database:
+
+- inspect existing schema
+- add indoor-navigation tables/migrations
+- preserve existing tables
+- do not reset or delete existing user data
+
+If migrations are supported, use migrations.
+
+Do not hard-code production data into backend source files if the existing project uses a database.
+
+--------------------------------------------------
+PHASE 14 — ERROR HANDLING
+--------------------------------------------------
+
+Handle cases such as:
+
+- building not found
+- floor not found
+- destination not found
+- current location unknown
+- no route exists
+- QR code invalid
+- QR code belongs to another building
+- user changes floor
+- backend unavailable
+- AI service unavailable
+
+Voice-friendly errors should be used where appropriate.
+
+Example:
+
+"I couldn't find Room 305."
+
+"I don't know your current indoor location. Please scan a location marker."
+
+"No accessible route was found."
+
+--------------------------------------------------
+PHASE 15 — DO NOT BREAK EXISTING FEATURES
+--------------------------------------------------
+
+This is extremely important.
+
+Before modifying anything:
+
+- understand existing APIs
+- understand existing components
+- understand existing services
+
+After implementation verify:
+
+1. Existing outdoor navigation still works.
+2. Existing obstacle detection still works.
+3. Existing voice functionality still works.
+4. Existing frontend pages still work.
+5. Existing backend APIs still work.
+6. Existing database functionality still works.
+7. Existing Docker setup still works.
+
+Do not replace working functionality merely to make the new feature easier.
+
+--------------------------------------------------
+PHASE 16 — DEVELOPMENT APPROACH
+--------------------------------------------------
+
+Implement incrementally.
+
+STEP 1:
+Analyze existing repository.
+
+STEP 2:
+Explain proposed architecture and files to modify.
+
+STEP 3:
+Create indoor-navigation data model.
+
+STEP 4:
+Create sample indoor map.
+
+STEP 5:
+Implement indoor route engine.
+
+STEP 6:
+Implement backend APIs.
+
+STEP 7:
+Implement frontend indoor-navigation UI.
+
+STEP 8:
+Implement indoor map visualization.
+
+STEP 9:
+Implement destination search.
+
+STEP 10:
+Implement voice destination commands.
+
+STEP 11:
+Implement QR-based localization.
+
+STEP 12:
+Integrate existing obstacle detection.
+
+STEP 13:
+Test complete indoor navigation flow.
+
+STEP 14:
+Fix errors and regressions.
+
+--------------------------------------------------
+FINAL USER FLOW
+--------------------------------------------------
+
+The final system should support this flow:
+
+USER OPENS APPLICATION
+
+        ↓
+
+Choose:
+
+Outdoor Navigation
+OR
+Indoor Navigation
+
+        ↓
+
+Indoor Navigation
+
+        ↓
+
+Select Building
+
+        ↓
+
+Select Floor
+
+        ↓
+
+Determine Current Location
+(Initially QR marker or manual selection)
+
+        ↓
+
+Say:
+
+"Take me to Room 305"
+
+        ↓
+
+System finds destination
+
+        ↓
+
+Routing engine calculates indoor path
+
+        ↓
+
+Indoor map displays route
+
+        ↓
+
+Voice navigation starts
+
+        ↓
+
+"Walk straight."
+
+        ↓
+
+"Turn right."
+
+        ↓
+
+"Continue for 10 meters."
+
+        ↓
+
+"Take the staircase to Floor 2."
+
+        ↓
+
+"Turn left."
+
+        ↓
+
+"Room 305 is on your right."
+
+        ↓
+
+Destination reached
+
+--------------------------------------------------
+IMPORTANT TECHNICAL RULES
+--------------------------------------------------
+
+1. Do not rebuild the project.
+2. Do not delete working features.
+3. Do not replace the existing AI service unnecessarily.
+4. Do not replace YOLO unnecessarily.
+5. Do not replace the existing frontend framework.
+6. Do not replace the existing backend framework.
+7. Reuse existing code wherever possible.
+8. Keep indoor navigation modular.
+9. Keep outdoor and indoor navigation as separate modes.
+10. Do not pretend GPS works accurately indoors.
+11. Do not claim sample building data represents the real college layout.
+12. Do not hard-code API keys or secrets.
+13. Do not introduce unnecessary dependencies.
+14. Explain why a new dependency is required before adding it.
+15. Follow the existing project coding style.
+16. Keep APIs documented.
+17. Add proper error handling.
+18. Add comments only where they improve maintainability.
+19. Make the implementation suitable for a final-year engineering project demonstration.
+20. Prioritize a WORKING prototype over unnecessary advanced features.
+
+--------------------------------------------------
+EXPECTED OUTPUT FROM YOU
+--------------------------------------------------
+
+Before changing code:
+
+1. Give me a complete analysis of the existing repository.
+2. Give me the current architecture.
+3. Identify existing files/services that can be reused.
+4. Identify exactly which files need modification.
+5. Identify new files that need to be created.
+6. Explain the indoor navigation architecture.
+7. Explain the indoor localization approach.
+8. Explain the database changes.
+9. Explain the API changes.
+10. Explain the frontend changes.
+
+Then implement the feature incrementally.
+
+After implementation provide:
+
+- files changed
+- files created
+- database changes
+- API endpoints
+- frontend flow
+- how to run the project
+- how to test indoor navigation
+- sample QR marker format
+- sample building/floor data
+- known limitations
+- future improvements
+
+Do not simply give me theoretical suggestions.
+
+Work directly with the existing codebase and integrate the indoor navigation feature into it.

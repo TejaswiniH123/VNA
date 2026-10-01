@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: indoor-navigation
+    description: Sample indoor building maps, location checkpoints, and graph routes
 paths:
   /healthz:
     get:
@@ -24,6 +26,167 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /indoor/buildings:
+    get:
+      operationId: listIndoorBuildings
+      tags: [indoor-navigation]
+      summary: List indoor buildings
+      responses:
+        "200":
+          description: Available indoor building maps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IndoorBuilding"
+  /indoor/buildings/{buildingId}/floors:
+    get:
+      operationId: listIndoorFloors
+      tags: [indoor-navigation]
+      summary: List floors in an indoor building
+      parameters:
+        - name: buildingId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Building floors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IndoorFloor"
+        "404":
+          description: Building not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /indoor/floors/{floorId}/map:
+    get:
+      operationId: getIndoorFloorMap
+      tags: [indoor-navigation]
+      summary: Get nodes and edges for one floor
+      parameters:
+        - name: floorId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Indoor map for the selected floor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndoorFloorMap"
+        "404":
+          description: Floor not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /indoor/destinations:
+    get:
+      operationId: searchIndoorDestinations
+      tags: [indoor-navigation]
+      summary: Search destinations in a building
+      parameters:
+        - name: buildingId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching room and facility destinations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IndoorDestination"
+        "404":
+          description: Building not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /indoor/location:
+    post:
+      operationId: resolveIndoorLocation
+      tags: [indoor-navigation]
+      summary: Resolve a QR marker or manually selected indoor node
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndoorLocationInput"
+      responses:
+        "200":
+          description: Resolved indoor checkpoint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndoorLocation"
+        "400":
+          description: Invalid marker or location request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Building or node not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /indoor/route:
+    post:
+      operationId: calculateIndoorRoute
+      tags: [indoor-navigation]
+      summary: Calculate an indoor route using graph pathfinding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndoorRouteInput"
+      responses:
+        "200":
+          description: Calculated indoor route and turn-by-turn steps
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndoorRoute"
+        "400":
+          description: Invalid route request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Building, start node, or destination not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: No suitable route exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +196,190 @@ components:
           type: string
       required:
         - status
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    IndoorBuilding:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        isDemo:
+          type: boolean
+      required: [id, name, description, isDemo]
+    IndoorFloor:
+      type: object
+      properties:
+        id:
+          type: string
+        buildingId:
+          type: string
+        floorNumber:
+          type: integer
+        name:
+          type: string
+      required: [id, buildingId, floorNumber, name]
+    IndoorNode:
+      type: object
+      properties:
+        id:
+          type: string
+        floorId:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [ENTRANCE, ROOM, CORRIDOR, JUNCTION, STAIRCASE, ELEVATOR, RESTROOM, RECEPTION, EXIT, OTHER]
+        x:
+          type: number
+        y:
+          type: number
+        description:
+          type: string
+      required: [id, floorId, name, type, x, y, description]
+    IndoorEdge:
+      type: object
+      properties:
+        id:
+          type: string
+        fromNodeId:
+          type: string
+        toNodeId:
+          type: string
+        distanceMeters:
+          type: number
+        accessible:
+          type: boolean
+        direction:
+          type: string
+        description:
+          type: string
+      required: [id, fromNodeId, toNodeId, distanceMeters, accessible, direction, description]
+    IndoorFloorMap:
+      type: object
+      properties:
+        building:
+          $ref: "#/components/schemas/IndoorBuilding"
+        floor:
+          $ref: "#/components/schemas/IndoorFloor"
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndoorNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndoorEdge"
+      required: [building, floor, nodes, edges]
+    IndoorDestination:
+      type: object
+      properties:
+        id:
+          type: string
+        buildingId:
+          type: string
+        floorId:
+          type: string
+        floorName:
+          type: string
+        nodeId:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [ROOM, RESTROOM, RECEPTION, ENTRANCE, EXIT, OTHER]
+      required: [id, buildingId, floorId, floorName, nodeId, name, type]
+    IndoorLocationInput:
+      type: object
+      properties:
+        buildingId:
+          type: string
+        method:
+          type: string
+          enum: [QR, MANUAL]
+        markerPayload:
+          type: string
+        nodeId:
+          type: string
+      required: [buildingId, method]
+    IndoorLocation:
+      type: object
+      properties:
+        buildingId:
+          type: string
+        floorId:
+          type: string
+        nodeId:
+          type: string
+        nodeName:
+          type: string
+        method:
+          type: string
+          enum: [QR, MANUAL]
+        message:
+          type: string
+      required: [buildingId, floorId, nodeId, nodeName, method, message]
+    IndoorRouteInput:
+      type: object
+      properties:
+        buildingId:
+          type: string
+        fromNodeId:
+          type: string
+        destinationId:
+          type: string
+        accessibleOnly:
+          type: boolean
+      required: [buildingId, fromNodeId, destinationId]
+    IndoorRouteStep:
+      type: object
+      properties:
+        order:
+          type: integer
+        fromNodeId:
+          type: string
+        toNodeId:
+          type: string
+        instruction:
+          type: string
+        distanceMeters:
+          type: number
+        floorTransition:
+          type: boolean
+        fromFloorName:
+          type: string
+        toFloorName:
+          type: string
+      required: [order, fromNodeId, toNodeId, instruction, distanceMeters, floorTransition, fromFloorName, toFloorName]
+    IndoorRoute:
+      type: object
+      properties:
+        buildingId:
+          type: string
+        fromNodeId:
+          type: string
+        destination:
+          $ref: "#/components/schemas/IndoorDestination"
+        distanceMeters:
+          type: number
+        durationSeconds:
+          type: number
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndoorNode"
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndoorRouteStep"
+      required: [buildingId, fromNodeId, destination, distanceMeters, durationSeconds, nodes, steps]
 
